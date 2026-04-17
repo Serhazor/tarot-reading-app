@@ -1,0 +1,16 @@
+{
+  "TarotPage": {
+    "title": "Situation. Challenge. Advice.",
+    "intro": "Type your question first, draw a 3-card spread second, then let AI interpret it without pretending it gets to rewrite your truth window.",
+    "readingRuleTitle": "Reading rule",
+    "readingRuleText": "Only the first spread in the chosen window counts as true. Every later spread in that same window is visible, but clearly marked as reflection only.",
+    "questionTitle": "Ask your question",
+    "questionPlaceholder": "Type your question here before drawing a spread...",
+    "drawSpread": "Draw my spread",
+    "drawAgain": "Draw another spread anyway",
+    "resetWindow": "Reset current window",
+    "interpret": "Interpret my spread",
+    "drawFirst": "Draw a spread first",
+    "loading": "Generating interpretation..."
+  }
+}
