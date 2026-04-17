@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type PeriodValue = "hour" | "day" | "week" | "month";
 type ReadingOrientation = "Upright" | "Reversed";
 type ArcanaType = "Major Arcana" | "Minor Arcana";
+type SpreadPosition = "Situation" | "Challenge" | "Advice";
 
 type TarotCard = {
   name: string;
@@ -14,9 +15,14 @@ type TarotCard = {
   reversed: string;
 };
 
-type Reading = TarotCard & {
+type SpreadCard = TarotCard & {
   orientation: ReadingOrientation;
   interpretation: string;
+  position: SpreadPosition;
+};
+
+type SpreadReading = {
+  cards: SpreadCard[];
   drawnAt: string;
   isTrueReading: boolean;
   readingText: string;
@@ -49,6 +55,12 @@ type MinorRankKey =
 type SuitTheme = {
   area: string;
 } & Record<MinorRankKey, string>;
+
+const SPREAD_POSITIONS: SpreadPosition[] = [
+  "Situation",
+  "Challenge",
+  "Advice",
+];
 
 const MAJOR_ARCANA: TarotCard[] = [
   {
@@ -284,22 +296,22 @@ const PERIODS: { value: PeriodValue; label: string; helper: string }[] = [
   {
     value: "hour",
     label: "1 hour",
-    helper: "Only the first reading this hour counts as true.",
+    helper: "Only the first spread this hour counts as true.",
   },
   {
     value: "day",
     label: "1 day",
-    helper: "Only the first reading today counts as true.",
+    helper: "Only the first spread today counts as true.",
   },
   {
     value: "week",
     label: "1 week",
-    helper: "Only the first reading this week counts as true.",
+    helper: "Only the first spread this week counts as true.",
   },
   {
     value: "month",
     label: "1 month",
-    helper: "Only the first reading this month counts as true.",
+    helper: "Only the first spread this month counts as true.",
   },
 ];
 
@@ -348,7 +360,7 @@ function getPeriodBucket(period: PeriodValue, now = new Date()) {
 }
 
 function getStorageKey(period: PeriodValue) {
-  return `tarot-mvp:${period}:${getPeriodBucket(period)}`;
+  return `tarot-spread-mvp:${period}:${getPeriodBucket(period)}`;
 }
 
 function formatDateTime(value: string) {
@@ -363,49 +375,67 @@ function randomInt(max: number) {
   return Math.floor(Math.random() * max);
 }
 
-function drawRandomCard(deck: TarotCard[]) {
-  return deck[randomInt(deck.length)];
+function drawUniqueCards(deck: TarotCard[], count: number): TarotCard[] {
+  const pool = [...deck];
+  const drawn: TarotCard[] = [];
+
+  for (let i = 0; i < count; i += 1) {
+    const index = randomInt(pool.length);
+    drawn.push(pool[index]);
+    pool.splice(index, 1);
+  }
+
+  return drawn;
 }
 
-function buildReadingText(
-  card: TarotCard,
+function buildSpreadReadingText(
+  cards: SpreadCard[],
   isTrueReading: boolean,
-  orientation: ReadingOrientation,
   period: PeriodValue
 ) {
   const truthIntro = isTrueReading
-    ? `This is your first reading for the selected ${period}, so the app treats it as your true reading.`
-    : `This is not your first reading for the selected ${period}, so treat it as reflection only, not the true reading.`;
+    ? `This is your first spread for the selected ${period}, so the app treats it as your true reading.`
+    : `This is not your first spread for the selected ${period}, so treat it as reflection only, not the true reading.`;
 
-  const typeText =
-    card.type === "Major Arcana"
-      ? "Major Arcana usually points to a stronger life lesson, larger pattern, or a bigger turning point."
-      : `${card.suit} usually relates to ${SUIT_THEMES[card.suit ?? ""].area}.`;
+  const spreadIntro =
+    "This 3-card spread uses Situation, Challenge, and Advice to frame the question clearly.";
 
-  const interpretation =
-    orientation === "Upright" ? card.upright : card.reversed;
+  const cardLines = cards
+    .map(
+      (card) =>
+        `${card.position}: ${card.name} (${card.orientation}) - ${card.interpretation}`
+    )
+    .join(" ");
 
-  return `${truthIntro} ${typeText} ${interpretation}`;
+  return `${truthIntro} ${spreadIntro} ${cardLines}`;
 }
 
-function createReading(
+function createSpreadReading(
   deck: TarotCard[],
   isTrueReading: boolean,
   period: PeriodValue
-): Reading {
-  const card = drawRandomCard(deck);
-  const orientation: ReadingOrientation =
-    Math.random() < 0.35 ? "Reversed" : "Upright";
-  const interpretation =
-    orientation === "Upright" ? card.upright : card.reversed;
+): SpreadReading {
+  const drawn = drawUniqueCards(deck, 3);
+
+  const cards: SpreadCard[] = drawn.map((card, index) => {
+    const orientation: ReadingOrientation =
+      Math.random() < 0.35 ? "Reversed" : "Upright";
+    const interpretation =
+      orientation === "Upright" ? card.upright : card.reversed;
+
+    return {
+      ...card,
+      orientation,
+      interpretation,
+      position: SPREAD_POSITIONS[index],
+    };
+  });
 
   return {
-    ...card,
-    orientation,
-    interpretation,
+    cards,
     drawnAt: new Date().toISOString(),
     isTrueReading,
-    readingText: buildReadingText(card, isTrueReading, orientation, period),
+    readingText: buildSpreadReadingText(cards, isTrueReading, period),
   };
 }
 
@@ -425,8 +455,8 @@ function cardAccent(type: TarotCard["type"]) {
 export default function Page() {
   const deck = useMemo(() => [...MAJOR_ARCANA, ...buildMinorArcana()], []);
   const [period, setPeriod] = useState<PeriodValue>("day");
-  const [truthReading, setTruthReading] = useState<Reading | null>(null);
-  const [latestReading, setLatestReading] = useState<Reading | null>(null);
+  const [truthReading, setTruthReading] = useState<SpreadReading | null>(null);
+  const [latestReading, setLatestReading] = useState<SpreadReading | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
 
   const [question, setQuestion] = useState("");
@@ -434,9 +464,11 @@ export default function Page() {
   const [isLoadingAi, setIsLoadingAi] = useState(false);
   const [aiError, setAiError] = useState("");
 
+  const interpretationRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     const saved = window.localStorage.getItem(getStorageKey(period));
-    const parsed = saved ? (JSON.parse(saved) as Reading) : null;
+    const parsed = saved ? (JSON.parse(saved) as SpreadReading) : null;
 
     setTruthReading(parsed);
     setLatestReading(parsed);
@@ -445,9 +477,29 @@ export default function Page() {
     setIsHydrated(true);
   }, [period]);
 
+  useEffect(() => {
+    if (isLoadingAi || aiReading || aiError) {
+      const timer = window.setTimeout(() => {
+        interpretationRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 120);
+
+      return () => window.clearTimeout(timer);
+    }
+  }, [isLoadingAi, aiReading, aiError]);
+
   function clearAiState() {
     setAiReading(null);
     setAiError("");
+  }
+
+  function scrollToInterpretation() {
+    interpretationRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
   }
 
   function drawTrueOrPersistedReading() {
@@ -457,13 +509,13 @@ export default function Page() {
     clearAiState();
 
     if (saved) {
-      const parsed = JSON.parse(saved) as Reading;
+      const parsed = JSON.parse(saved) as SpreadReading;
       setTruthReading(parsed);
       setLatestReading(parsed);
       return;
     }
 
-    const firstReading = createReading(deck, true, period);
+    const firstReading = createSpreadReading(deck, true, period);
     window.localStorage.setItem(key, JSON.stringify(firstReading));
     setTruthReading(firstReading);
     setLatestReading(firstReading);
@@ -471,7 +523,7 @@ export default function Page() {
 
   function drawReflectiveReading() {
     clearAiState();
-    const reflective = createReading(deck, false, period);
+    const reflective = createSpreadReading(deck, false, period);
     setLatestReading(reflective);
   }
 
@@ -479,7 +531,6 @@ export default function Page() {
     window.localStorage.removeItem(getStorageKey(period));
     setTruthReading(null);
     setLatestReading(null);
-    setQuestion("");
     clearAiState();
   }
 
@@ -498,13 +549,14 @@ export default function Page() {
         },
         body: JSON.stringify({
           question,
-          card: {
-            name: latestReading.name,
-            type: latestReading.type,
-            suit: latestReading.suit,
-            orientation: latestReading.orientation,
-            interpretation: latestReading.interpretation,
-          },
+          cards: latestReading.cards.map((card) => ({
+            name: card.name,
+            type: card.type,
+            suit: card.suit,
+            orientation: card.orientation,
+            interpretation: card.interpretation,
+            position: card.position,
+          })),
           isTrueReading: latestReading.isTrueReading,
           period,
         }),
@@ -528,6 +580,7 @@ export default function Page() {
 
   const currentPeriodMeta = PERIODS.find((item) => item.value === period)!;
   const showReflectiveNotice = !!latestReading && !latestReading.isTrueReading;
+  const shouldShowJumpButton = isLoadingAi || !!aiReading || !!aiError;
 
   return (
     <main className="min-h-screen overflow-hidden bg-[#070612] text-white">
@@ -538,16 +591,13 @@ export default function Page() {
         <section className="mb-8 rounded-[32px] border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur-xl lg:p-8">
           <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
             <div>
-              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-fuchsia-400/20 bg-fuchsia-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-fuchsia-200">
-                Text-only tarot MVP
-              </div>
               <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-                Tarot readings with one rule people will absolutely try to ignore
+                Situation. Challenge. Advice.
               </h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-white/70">
-                The first reading inside the selected time window is treated as
-                the meaningful one. Any extra reading during that same window is
-                shown as reflective only.
+                Type your question first, draw a 3-card spread second, then let
+                AI interpret it without pretending it gets to rewrite your truth
+                window.
               </p>
             </div>
 
@@ -556,9 +606,9 @@ export default function Page() {
                 Reading rule
               </div>
               <p className="text-sm leading-6 text-white/65">
-                Only the first reading in the chosen window counts as true.
-                Every later draw in that same window is still visible, but
-                clearly labeled as reflection only.
+                Only the first spread in the chosen window counts as true. Every
+                later spread in that same window is visible, but clearly marked
+                as reflection only.
               </p>
               <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
                 Current setting:{" "}
@@ -576,7 +626,7 @@ export default function Page() {
             <div className="mb-5">
               <p className="text-sm font-medium text-white/85">Truth window</p>
               <p className="mt-1 text-sm leading-6 text-white/55">
-                Let the user decide how long the first reading remains the only
+                Let the user decide how long the first spread remains the only
                 true one.
               </p>
             </div>
@@ -613,7 +663,7 @@ export default function Page() {
                 onClick={drawTrueOrPersistedReading}
                 className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 transition hover:scale-[0.99]"
               >
-                {truthReading ? "Show my true reading" : "Draw my reading"}
+                {truthReading ? "Show my true spread" : "Draw my spread"}
               </button>
 
               <button
@@ -621,7 +671,7 @@ export default function Page() {
                 onClick={drawReflectiveReading}
                 className="rounded-2xl border border-white/12 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
               >
-                Draw again anyway
+                Draw another spread anyway
               </button>
 
               <button
@@ -635,15 +685,20 @@ export default function Page() {
 
             <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
               <div className="text-xs uppercase tracking-[0.2em] text-white/45">
-                Stored true reading
+                Stored true spread
               </div>
               {truthReading ? (
                 <>
-                  <div className="mt-3 text-lg font-semibold text-white">
-                    {truthReading.name}
-                  </div>
-                  <div className="mt-1 text-sm text-white/55">
-                    {truthReading.orientation} • {truthReading.type}
+                  <div className="mt-3 space-y-2">
+                    {truthReading.cards.map((card) => (
+                      <div
+                        key={`${card.position}-${card.name}`}
+                        className="text-sm text-white/80"
+                      >
+                        <span className="font-semibold">{card.position}:</span>{" "}
+                        {card.name} ({card.orientation})
+                      </div>
+                    ))}
                   </div>
                   <div className="mt-3 text-sm leading-6 text-white/65">
                     Saved {formatDateTime(truthReading.drawnAt)}
@@ -651,192 +706,227 @@ export default function Page() {
                 </>
               ) : (
                 <p className="mt-3 text-sm leading-6 text-white/55">
-                  No true reading saved for this window yet.
+                  No true spread saved for this window yet.
                 </p>
               )}
             </div>
           </aside>
 
           <section className="rounded-[28px] border border-white/10 bg-white/5 p-5 shadow-2xl backdrop-blur-xl lg:p-6">
+            <div className="mb-5 rounded-[24px] border border-white/10 bg-black/20 p-5">
+              <div className="text-xs uppercase tracking-[0.2em] text-white/45">
+                Ask your question
+              </div>
+
+              <textarea
+                value={question}
+                onChange={(e) => {
+                  setQuestion(e.target.value);
+                  clearAiState();
+                }}
+                placeholder="Type your question here before drawing a spread..."
+                className="mt-3 min-h-[120px] w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35"
+              />
+
+              <div className="mt-3 text-sm text-white/55">
+                {!latestReading
+                  ? "Step 1: type your question. Step 2: draw a 3-card spread. Step 3: interpret the reading."
+                  : "Your spread is ready. You can now ask Gemini to interpret it."}
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  disabled={!latestReading || !question.trim() || isLoadingAi}
+                  onClick={generateAiInterpretation}
+                  className="rounded-2xl bg-fuchsia-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-fuchsia-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isLoadingAi
+                    ? "Generating interpretation..."
+                    : !latestReading
+                    ? "Draw a spread first"
+                    : "Interpret my spread"}
+                </button>
+
+                {shouldShowJumpButton && (
+                  <button
+                    type="button"
+                    onClick={scrollToInterpretation}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+                  >
+                    Jump to interpretation
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div ref={interpretationRef} className="mb-5 space-y-4">
+              {isLoadingAi && (
+                <div className="rounded-[24px] border border-fuchsia-400/20 bg-fuchsia-500/10 p-5">
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-fuchsia-100">
+                    Interpretation in progress
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-white/80">
+                    Gemini is interpreting your spread. This may take a few
+                    seconds.
+                  </p>
+
+                  <div className="mt-4 flex items-center gap-3">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    <span className="text-sm text-white/70">
+                      Generating your interpretation...
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {aiError && (
+                <div className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                  {aiError}
+                </div>
+              )}
+
+              {aiReading && (
+                <div className="rounded-[24px] border border-fuchsia-400/20 bg-fuchsia-500/10 p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-xl font-semibold text-white">
+                      {aiReading.title}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={scrollToInterpretation}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+                    >
+                      Stay on interpretation
+                    </button>
+                  </div>
+
+                  <p className="mt-3 text-sm leading-7 text-white/80">
+                    {aiReading.interpretation}
+                  </p>
+
+                  <p className="mt-3 text-sm leading-7 text-white/70">
+                    <span className="font-semibold text-white">Advice:</span>{" "}
+                    {aiReading.advice}
+                  </p>
+
+                  <p className="mt-3 text-sm leading-7 text-white/70">
+                    <span className="font-semibold text-white">Caution:</span>{" "}
+                    {aiReading.caution}
+                  </p>
+
+                  <p className="mt-4 text-sm leading-7 text-amber-200">
+                    {aiReading.truthNote}
+                  </p>
+                </div>
+              )}
+            </div>
+
             {!isHydrated ? (
               <div className="flex min-h-[420px] items-center justify-center rounded-[28px] border border-white/10 bg-black/20 text-white/60">
                 Loading the cosmic paperwork...
               </div>
             ) : !latestReading ? (
               <div className="flex min-h-[420px] flex-col items-center justify-center rounded-[28px] border border-dashed border-white/10 bg-black/20 px-8 text-center">
-                <div className="mb-4 h-20 w-14 rounded-2xl border border-fuchsia-400/20 bg-gradient-to-b from-fuchsia-500/15 to-sky-500/10 shadow-[0_0_40px_rgba(168,85,247,0.12)]" />
+                <div className="mb-4 flex gap-3">
+                  {SPREAD_POSITIONS.map((position) => (
+                    <div
+                      key={position}
+                      className="h-20 w-14 rounded-2xl border border-fuchsia-400/20 bg-gradient-to-b from-fuchsia-500/15 to-sky-500/10 shadow-[0_0_40px_rgba(168,85,247,0.12)]"
+                    />
+                  ))}
+                </div>
                 <h2 className="text-2xl font-semibold text-white">
-                  No card drawn yet
+                  No spread drawn yet
                 </h2>
                 <p className="mt-3 max-w-xl text-sm leading-7 text-white/60">
-                  Pick a time window and draw a card. The first one becomes the
-                  true reading for that window. Any later draw is shown as
-                  reflective only.
+                  Your question is ready. Draw the spread so the app has
+                  Situation, Challenge, and Advice instead of vague dramatic
+                  fog.
                 </p>
               </div>
             ) : (
-              <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
+              <div className="space-y-5">
                 <div
-                  className={`rounded-[28px] border border-white/10 bg-gradient-to-br ${cardAccent(
-                    latestReading.type
-                  )} p-[1px] shadow-2xl`}
+                  className={`rounded-[24px] border px-5 py-4 ${
+                    latestReading.isTrueReading
+                      ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-50"
+                      : "border-amber-400/20 bg-amber-500/10 text-amber-50"
+                  }`}
                 >
-                  <div className="flex h-full min-h-[380px] flex-col justify-between rounded-[27px] bg-[#0b0b16]/95 p-6">
-                    <div>
-                      <div className="text-xs uppercase tracking-[0.24em] text-white/45">
-                        {latestReading.type}
-                      </div>
-                      <div className="mt-4 text-3xl font-semibold leading-tight text-white">
-                        {latestReading.name}
-                      </div>
-                      <div className="mt-3 inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-white/70">
-                        {latestReading.orientation}
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                        <div className="text-xs uppercase tracking-[0.2em] text-white/45">
-                          Meaning
-                        </div>
-                        <p className="mt-2 text-sm leading-6 text-white/75">
-                          {latestReading.interpretation}
-                        </p>
-                      </div>
-
-                      <div className="text-xs text-white/45">
-                        Drawn {formatDateTime(latestReading.drawnAt)}
-                      </div>
-                    </div>
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em]">
+                    {latestReading.isTrueReading
+                      ? "True spread"
+                      : "Reflective only"}
                   </div>
+                  <p className="mt-2 text-sm leading-6 opacity-90">
+                    {latestReading.isTrueReading
+                      ? `This is the first spread in your selected ${period}, so the app treats it as the meaningful one.`
+                      : `This is not the first spread in your selected ${period}. It is shown for reflection only and should not replace the original spread.`}
+                  </p>
                 </div>
 
-                <div className="space-y-5">
-                  <div
-                    className={`rounded-[24px] border px-5 py-4 ${
-                      latestReading.isTrueReading
-                        ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-50"
-                        : "border-amber-400/20 bg-amber-500/10 text-amber-50"
-                    }`}
-                  >
+                {showReflectiveNotice && truthReading && (
+                  <div className="rounded-[24px] border border-fuchsia-400/20 bg-fuchsia-500/10 px-5 py-4 text-fuchsia-50">
                     <div className="text-sm font-semibold uppercase tracking-[0.18em]">
-                      {latestReading.isTrueReading
-                        ? "True reading"
-                        : "Reflective only"}
+                      Original true spread still stands
                     </div>
                     <p className="mt-2 text-sm leading-6 opacity-90">
-                      {latestReading.isTrueReading
-                        ? `This is the first reading in your selected ${period}, so the app treats it as the meaningful one.`
-                        : `This is not the first reading in your selected ${period}. It is shown for reflection only and should not replace the original reading.`}
+                      Your true spread for this window remains the original one.
+                      The current spread is extra reflection, not a replacement.
                     </p>
                   </div>
+                )}
 
-                  {showReflectiveNotice && truthReading && (
-                    <div className="rounded-[24px] border border-fuchsia-400/20 bg-fuchsia-500/10 px-5 py-4 text-fuchsia-50">
-                      <div className="text-sm font-semibold uppercase tracking-[0.18em]">
-                        Original true reading still stands
-                      </div>
-                      <p className="mt-2 text-sm leading-6 opacity-90">
-                        Your true reading for this window remains{" "}
-                        <span className="font-semibold">
-                          {truthReading.name}
-                        </span>{" "}
-                        ({truthReading.orientation}). The current card is extra
-                        reflection, not a replacement.
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="rounded-[24px] border border-white/10 bg-black/20 p-5">
-                    <div className="text-xs uppercase tracking-[0.2em] text-white/45">
-                      Full reading
-                    </div>
-                    <p className="mt-3 text-base leading-8 text-white/80">
-                      {latestReading.readingText}
-                    </p>
-                  </div>
-
-                  <div className="rounded-[24px] border border-white/10 bg-black/20 p-5">
-                    <div className="text-xs uppercase tracking-[0.2em] text-white/45">
-                      Ask your question
-                    </div>
-
-                    <textarea
-                      value={question}
-                      onChange={(e) => setQuestion(e.target.value)}
-                      placeholder="Type your question here..."
-                      className="mt-3 min-h-[120px] w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35"
-                    />
-
-                    <button
-                      type="button"
-                      disabled={
-                        !latestReading || !question.trim() || isLoadingAi
-                      }
-                      onClick={generateAiInterpretation}
-                      className="mt-4 rounded-2xl bg-fuchsia-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-fuchsia-400 disabled:cursor-not-allowed disabled:opacity-50"
+                <div className="grid gap-5 lg:grid-cols-3">
+                  {latestReading.cards.map((card) => (
+                    <div
+                      key={`${card.position}-${card.name}-${card.orientation}`}
+                      className={`rounded-[28px] border border-white/10 bg-gradient-to-br ${cardAccent(
+                        card.type
+                      )} p-[1px] shadow-2xl`}
                     >
-                      {isLoadingAi ? "Interpreting..." : "Interpret my reading"}
-                    </button>
+                      <div className="flex h-full min-h-[340px] flex-col justify-between rounded-[27px] bg-[#0b0b16]/95 p-6">
+                        <div>
+                          <div className="text-xs uppercase tracking-[0.24em] text-fuchsia-200/90">
+                            {card.position}
+                          </div>
+                          <div className="mt-3 text-xs uppercase tracking-[0.24em] text-white/45">
+                            {card.type}
+                          </div>
+                          <div className="mt-4 text-2xl font-semibold leading-tight text-white">
+                            {card.name}
+                          </div>
+                          <div className="mt-3 inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-white/70">
+                            {card.orientation}
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                            <div className="text-xs uppercase tracking-[0.2em] text-white/45">
+                              Meaning
+                            </div>
+                            <p className="mt-2 text-sm leading-6 text-white/75">
+                              {card.interpretation}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-[24px] border border-white/10 bg-black/20 p-5">
+                  <div className="text-xs uppercase tracking-[0.2em] text-white/45">
+                    Full spread reading
                   </div>
-
-                  {aiError && (
-                    <div className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-                      {aiError}
-                    </div>
-                  )}
-
-                  {aiReading && (
-                    <div className="rounded-[24px] border border-fuchsia-400/20 bg-fuchsia-500/10 p-5">
-                      <div className="text-xl font-semibold text-white">
-                        {aiReading.title}
-                      </div>
-
-                      <p className="mt-3 text-sm leading-7 text-white/80">
-                        {aiReading.interpretation}
-                      </p>
-
-                      <p className="mt-3 text-sm leading-7 text-white/70">
-                        <span className="font-semibold text-white">Advice:</span>{" "}
-                        {aiReading.advice}
-                      </p>
-
-                      <p className="mt-3 text-sm leading-7 text-white/70">
-                        <span className="font-semibold text-white">Caution:</span>{" "}
-                        {aiReading.caution}
-                      </p>
-
-                      <p className="mt-4 text-sm leading-7 text-amber-200">
-                        {aiReading.truthNote}
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="grid gap-5 md:grid-cols-2">
-                    <div className="rounded-[24px] border border-white/10 bg-black/20 p-5">
-                      <div className="text-xs uppercase tracking-[0.2em] text-white/45">
-                        MVP features
-                      </div>
-                      <ul className="mt-3 space-y-2 text-sm leading-6 text-white/65">
-                        <li>• Text-only tarot MVP using a generated 78-card deck.</li>
-                        <li>• Local storage keeps the first reading per selected time window.</li>
-                        <li>• Re-draws stay available, but are clearly marked as not true.</li>
-                        <li>• AI can interpret the selected card against a typed question.</li>
-                      </ul>
-                    </div>
-
-                    <div className="rounded-[24px] border border-white/10 bg-black/20 p-5">
-                      <div className="text-xs uppercase tracking-[0.2em] text-white/45">
-                        Next upgrades
-                      </div>
-                      <ul className="mt-3 space-y-2 text-sm leading-6 text-white/65">
-                        <li>• Add card artwork and a flip animation.</li>
-                        <li>• Add 3-card spreads for past, present, future.</li>
-                        <li>• Save reading history in a lightweight backend.</li>
-                        <li>• Add themes and social sharing.</li>
-                      </ul>
-                    </div>
-                  </div>
+                  <p className="mt-3 text-base leading-8 text-white/80">
+                    {latestReading.readingText}
+                  </p>
+                  <p className="mt-4 text-xs text-white/45">
+                    Drawn {formatDateTime(latestReading.drawnAt)}
+                  </p>
                 </div>
               </div>
             )}
