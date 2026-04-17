@@ -4,6 +4,8 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
+type Locale = "en" | "ru";
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -13,6 +15,7 @@ export async function POST(request: Request) {
       cards,
       isTrueReading,
       period,
+      locale,
     }: {
       question: string;
       cards: Array<{
@@ -25,7 +28,10 @@ export async function POST(request: Request) {
       }>;
       isTrueReading: boolean;
       period: "hour" | "day" | "week" | "month";
+      locale?: Locale;
     } = body;
+
+    const selectedLocale: Locale = locale === "ru" ? "ru" : "en";
 
     if (!process.env.GEMINI_API_KEY) {
       return Response.json(
@@ -36,14 +42,19 @@ export async function POST(request: Request) {
 
     if (!question?.trim()) {
       return Response.json(
-        { error: "Question is required." },
+        { error: selectedLocale === "ru" ? "Нужен вопрос." : "Question is required." },
         { status: 400 }
       );
     }
 
     if (!cards || cards.length !== 3) {
       return Response.json(
-        { error: "Exactly 3 cards are required." },
+        {
+          error:
+            selectedLocale === "ru"
+              ? "Нужно передать ровно 3 карты."
+              : "Exactly 3 cards are required.",
+        },
         { status: 400 }
       );
     }
@@ -61,10 +72,16 @@ export async function POST(request: Request) {
       )
       .join("\n");
 
+    const languageInstruction =
+      selectedLocale === "ru"
+        ? "Respond in Russian."
+        : "Respond in English.";
+
     const prompt = `
 You are interpreting a tarot reading for reflection and personal insight.
 Do not claim certainty, supernatural fact, or guaranteed outcomes.
 Be thoughtful, symbolic, grounded, and concise.
+${languageInstruction}
 
 The spread is:
 1. Situation
@@ -93,6 +110,7 @@ Rules:
 - Explain the spread in relation to the user's question.
 - If isTrueReading is true, truthNote should say this is the first spread for the selected period.
 - If isTrueReading is false, truthNote should clearly say this is reflective only and should not replace the original spread.
+- Keep the tone insightful, readable, and not theatrical nonsense.
 `;
 
     const response = await ai.models.generateContent({
@@ -125,7 +143,12 @@ Rules:
 
     if (!text) {
       return Response.json(
-        { error: "No response from Gemini." },
+        {
+          error:
+            selectedLocale === "ru"
+              ? "Gemini не вернул ответ."
+              : "No response from Gemini.",
+        },
         { status: 500 }
       );
     }
