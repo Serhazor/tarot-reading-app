@@ -22,6 +22,14 @@ type Reading = TarotCard & {
   readingText: string;
 };
 
+type AiReading = {
+  title: string;
+  interpretation: string;
+  advice: string;
+  caution: string;
+  truthNote: string;
+};
+
 type MinorRankKey =
   | "ace"
   | "two"
@@ -421,18 +429,32 @@ export default function Page() {
   const [latestReading, setLatestReading] = useState<Reading | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
 
+  const [question, setQuestion] = useState("");
+  const [aiReading, setAiReading] = useState<AiReading | null>(null);
+  const [isLoadingAi, setIsLoadingAi] = useState(false);
+  const [aiError, setAiError] = useState("");
+
   useEffect(() => {
     const saved = window.localStorage.getItem(getStorageKey(period));
     const parsed = saved ? (JSON.parse(saved) as Reading) : null;
 
     setTruthReading(parsed);
     setLatestReading(parsed);
+    setAiReading(null);
+    setAiError("");
     setIsHydrated(true);
   }, [period]);
+
+  function clearAiState() {
+    setAiReading(null);
+    setAiError("");
+  }
 
   function drawTrueOrPersistedReading() {
     const key = getStorageKey(period);
     const saved = window.localStorage.getItem(key);
+
+    clearAiState();
 
     if (saved) {
       const parsed = JSON.parse(saved) as Reading;
@@ -448,6 +470,7 @@ export default function Page() {
   }
 
   function drawReflectiveReading() {
+    clearAiState();
     const reflective = createReading(deck, false, period);
     setLatestReading(reflective);
   }
@@ -456,6 +479,51 @@ export default function Page() {
     window.localStorage.removeItem(getStorageKey(period));
     setTruthReading(null);
     setLatestReading(null);
+    setQuestion("");
+    clearAiState();
+  }
+
+  async function generateAiInterpretation() {
+    if (!latestReading || !question.trim()) return;
+
+    setIsLoadingAi(true);
+    setAiError("");
+    setAiReading(null);
+
+    try {
+      const response = await fetch("/api/tarot", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          question,
+          card: {
+            name: latestReading.name,
+            type: latestReading.type,
+            suit: latestReading.suit,
+            orientation: latestReading.orientation,
+            interpretation: latestReading.interpretation,
+          },
+          isTrueReading: latestReading.isTrueReading,
+          period,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to interpret reading.");
+      }
+
+      setAiReading(data as AiReading);
+    } catch (error) {
+      setAiError(
+        error instanceof Error ? error.message : "Something went wrong."
+      );
+    } finally {
+      setIsLoadingAi(false);
+    }
   }
 
   const currentPeriodMeta = PERIODS.find((item) => item.value === period)!;
@@ -688,6 +756,62 @@ export default function Page() {
                     </p>
                   </div>
 
+                  <div className="rounded-[24px] border border-white/10 bg-black/20 p-5">
+                    <div className="text-xs uppercase tracking-[0.2em] text-white/45">
+                      Ask your question
+                    </div>
+
+                    <textarea
+                      value={question}
+                      onChange={(e) => setQuestion(e.target.value)}
+                      placeholder="Type your question here..."
+                      className="mt-3 min-h-[120px] w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35"
+                    />
+
+                    <button
+                      type="button"
+                      disabled={
+                        !latestReading || !question.trim() || isLoadingAi
+                      }
+                      onClick={generateAiInterpretation}
+                      className="mt-4 rounded-2xl bg-fuchsia-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-fuchsia-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isLoadingAi ? "Interpreting..." : "Interpret my reading"}
+                    </button>
+                  </div>
+
+                  {aiError && (
+                    <div className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                      {aiError}
+                    </div>
+                  )}
+
+                  {aiReading && (
+                    <div className="rounded-[24px] border border-fuchsia-400/20 bg-fuchsia-500/10 p-5">
+                      <div className="text-xl font-semibold text-white">
+                        {aiReading.title}
+                      </div>
+
+                      <p className="mt-3 text-sm leading-7 text-white/80">
+                        {aiReading.interpretation}
+                      </p>
+
+                      <p className="mt-3 text-sm leading-7 text-white/70">
+                        <span className="font-semibold text-white">Advice:</span>{" "}
+                        {aiReading.advice}
+                      </p>
+
+                      <p className="mt-3 text-sm leading-7 text-white/70">
+                        <span className="font-semibold text-white">Caution:</span>{" "}
+                        {aiReading.caution}
+                      </p>
+
+                      <p className="mt-4 text-sm leading-7 text-amber-200">
+                        {aiReading.truthNote}
+                      </p>
+                    </div>
+                  )}
+
                   <div className="grid gap-5 md:grid-cols-2">
                     <div className="rounded-[24px] border border-white/10 bg-black/20 p-5">
                       <div className="text-xs uppercase tracking-[0.2em] text-white/45">
@@ -697,7 +821,7 @@ export default function Page() {
                         <li>• Text-only tarot MVP using a generated 78-card deck.</li>
                         <li>• Local storage keeps the first reading per selected time window.</li>
                         <li>• Re-draws stay available, but are clearly marked as not true.</li>
-                        <li>• Easy to extend later with card images, spreads, and share links.</li>
+                        <li>• AI can interpret the selected card against a typed question.</li>
                       </ul>
                     </div>
 
