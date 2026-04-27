@@ -13,9 +13,8 @@ export type UiCopy = {
   staysLocked: string;
   truthWindow: string;
   truthWindowText: string;
-  drawSpread: string;
-  showTrueSpread: string;
-  drawAnother: string;
+  truthWindowLockedHint: string;
+  drawAndInterpret: string;
   resetWindow: string;
   storedTrueSpread: string;
   noTrueSpread: string;
@@ -24,8 +23,6 @@ export type UiCopy = {
   flowNoSpread: string;
   flowHasSpread: string;
   generating: string;
-  drawFirst: string;
-  interpretSpread: string;
   jumpToInterpretation: string;
   loadingPaperwork: string;
   noSpreadDrawn: string;
@@ -45,6 +42,18 @@ export type UiCopy = {
   stayOnInterpretation: string;
   adviceLabel: string;
   cautionLabel: string;
+  readerName: string;
+  readerTitle: string;
+  statusShufflingTitle: string;
+  statusShufflingMessage: string;
+  statusUsingSavedTitle: string;
+  statusUsingSavedMessage: string;
+  statusCardsDrawnTitle: string;
+  statusCardsDrawnMessage: string;
+  statusStudyingTitle: string;
+  statusStudyingMessage: string;
+  statusRetryingTitle: string;
+  statusRetryingMessage: (attempt: number, max: number) => string;
   positionLabels: Record<SpreadPosition, string>;
   spreadIntro: string;
   truthIntroTrue: (period: PeriodValue) => string;
@@ -53,6 +62,8 @@ export type UiCopy = {
   untilTomorrow: string;
   untilNextWeek: string;
   untilNextMonth: string;
+  untilNextYear: string;
+  untilNextDecade: string;
   periods: Record<PeriodValue, { label: string; helper: string }>;
 };
 
@@ -60,7 +71,7 @@ export const COPY: Record<SupportedLocale, UiCopy> = {
   en: {
     title: "Situation. Challenge. Advice.",
     intro:
-      "Type your question first, draw a 3-card spread second, then let AI interpret it without pretending it gets to rewrite your truth window.",
+      "Type your question first, choose the time window second, then let the cards and Madame Vespera do the rest.",
     readingRuleTitle: "Reading rule",
     readingRuleText:
       "Only the first spread in the chosen window counts as true. Every later spread in that same window is visible, but clearly marked as reflection only.",
@@ -68,27 +79,25 @@ export const COPY: Record<SupportedLocale, UiCopy> = {
     staysLocked: "It stays locked",
     truthWindow: "Truth window",
     truthWindowText:
-      "Let the user decide how long the first spread remains the only true one.",
-    drawSpread: "Draw my spread",
-    showTrueSpread: "Show my true spread",
-    drawAnother: "Draw another spread anyway",
+      "Choose how long the first spread remains the only true one.",
+    truthWindowLockedHint:
+      "Type your question first to unlock the time window.",
+    drawAndInterpret: "Draw cards and get my answer",
     resetWindow: "Reset current window",
     storedTrueSpread: "Stored true spread",
     noTrueSpread: "No true spread saved for this window yet.",
     askQuestion: "Ask your question",
-    questionPlaceholder: "Type your question here before drawing a spread...",
+    questionPlaceholder: "Type your question here...",
     flowNoSpread:
-      "Step 1: type your question. Step 2: draw a 3-card spread. Step 3: interpret the reading.",
+      "Step 1: type your question. Step 2: choose the time window. Step 3: draw the cards and get your answer.",
     flowHasSpread:
-      "Your spread is ready. You can now ask Gemini to interpret it.",
-    generating: "Generating interpretation...",
-    drawFirst: "Draw a spread first",
-    interpretSpread: "Interpret my spread",
+      "A spread already exists for this window. The true spread will be used if one is already saved.",
+    generating: "Working on your reading...",
     jumpToInterpretation: "Jump to interpretation",
     loadingPaperwork: "Loading the cosmic paperwork...",
     noSpreadDrawn: "No spread drawn yet",
     noSpreadText:
-      "Your question is ready. Draw the spread so the app has Situation, Challenge, and Advice instead of vague dramatic fog.",
+      "Your question is ready. Once you start, the cards will be drawn and interpreted in one flow.",
     trueSpread: "True spread",
     reflectiveOnly: "Reflective only",
     trueSpreadText: (period: PeriodValue) =>
@@ -103,11 +112,27 @@ export const COPY: Record<SupportedLocale, UiCopy> = {
     drawn: "Drawn",
     interpretationInProgress: "Interpretation in progress",
     interpretationLoading:
-      "Gemini is interpreting your spread. This may take a few seconds.",
-    interpretationGenerating: "Generating your interpretation...",
+      "Madame Vespera is studying your spread. This may take a few seconds.",
+    interpretationGenerating: "Preparing your answer...",
     stayOnInterpretation: "Stay on interpretation",
     adviceLabel: "Advice",
     cautionLabel: "Caution",
+    readerName: "Madame Vespera",
+    readerTitle: "Keeper of the Veil",
+    statusShufflingTitle: "Shuffling the deck",
+    statusShufflingMessage: "The cards are being drawn now.",
+    statusUsingSavedTitle: "True spread found",
+    statusUsingSavedMessage:
+      "A true spread already exists for this time window. It will be read against your question.",
+    statusCardsDrawnTitle: "Cards on the table",
+    statusCardsDrawnMessage:
+      "The spread has been drawn. The symbols are settling into place.",
+    statusStudyingTitle: "Madame Vespera is reading",
+    statusStudyingMessage:
+      "Madame Vespera, Keeper of the Veil, is studying the cards and preparing your answer.",
+    statusRetryingTitle: "The veil flickered",
+    statusRetryingMessage: (attempt: number, max: number) =>
+      `Connection faltered. Madame Vespera is trying again (${attempt}/${max}).`,
     positionLabels: {
       Situation: "Situation",
       Challenge: "Challenge",
@@ -123,6 +148,8 @@ export const COPY: Record<SupportedLocale, UiCopy> = {
     untilTomorrow: "until tomorrow",
     untilNextWeek: "until next week",
     untilNextMonth: "until next month",
+    untilNextYear: "until next year",
+    untilNextDecade: "until the next decade",
     periods: {
       hour: {
         label: "1 hour",
@@ -140,12 +167,20 @@ export const COPY: Record<SupportedLocale, UiCopy> = {
         label: "1 month",
         helper: "Only the first spread this month counts as true.",
       },
+      year: {
+        label: "1 year",
+        helper: "Only the first spread this year counts as true.",
+      },
+      decade: {
+        label: "10 years",
+        helper: "Only the first spread this decade counts as true.",
+      },
     },
   },
   ru: {
     title: "Ситуация. Препятствие. Совет.",
     intro:
-      "Сначала введите свой вопрос, затем вытяните расклад из 3 карт, а после этого позвольте ИИ интерпретировать его, не переписывая правило истинного окна.",
+      "Сначала введите свой вопрос, затем выберите временное окно, а дальше карты и мадам Веспера сделают остальное.",
     readingRuleTitle: "Правило расклада",
     readingRuleText:
       "Только первый расклад в выбранном временном окне считается истинным. Все последующие расклады в этом же окне показываются только для размышления.",
@@ -153,28 +188,25 @@ export const COPY: Record<SupportedLocale, UiCopy> = {
     staysLocked: "Остаётся зафиксированным",
     truthWindow: "Окно истинности",
     truthWindowText:
-      "Пользователь сам выбирает, как долго первый расклад остаётся единственным истинным.",
-    drawSpread: "Вытянуть расклад",
-    showTrueSpread: "Показать мой истинный расклад",
-    drawAnother: "Вытянуть ещё один расклад",
+      "Выберите, как долго первый расклад остаётся единственным истинным.",
+    truthWindowLockedHint:
+      "Сначала введите вопрос, чтобы открыть выбор временного окна.",
+    drawAndInterpret: "Вытянуть карты и получить ответ",
     resetWindow: "Сбросить текущее окно",
     storedTrueSpread: "Сохранённый истинный расклад",
     noTrueSpread: "Для этого окна ещё нет сохранённого истинного расклада.",
     askQuestion: "Ваш вопрос",
-    questionPlaceholder:
-      "Введите свой вопрос перед тем, как вытянуть расклад...",
+    questionPlaceholder: "Введите свой вопрос...",
     flowNoSpread:
-      "Шаг 1: введите вопрос. Шаг 2: вытяните расклад из 3 карт. Шаг 3: интерпретируйте расклад.",
+      "Шаг 1: введите вопрос. Шаг 2: выберите временное окно. Шаг 3: вытяните карты и получите ответ.",
     flowHasSpread:
-      "Ваш расклад готов. Теперь можно попросить Gemini его интерпретировать.",
-    generating: "Генерируется интерпретация...",
-    drawFirst: "Сначала вытяните расклад",
-    interpretSpread: "Интерпретировать расклад",
+      "Для этого окна уже существует расклад. Если он сохранён как истинный, будет использован именно он.",
+    generating: "Идёт работа над раскладом...",
     jumpToInterpretation: "Перейти к интерпретации",
     loadingPaperwork: "Загружается космическая документация...",
     noSpreadDrawn: "Расклад ещё не вытянут",
     noSpreadText:
-      "Ваш вопрос уже готов. Теперь вытяните расклад, чтобы у приложения были Ситуация, Препятствие и Совет, а не просто туманный драматизм.",
+      "Ваш вопрос готов. Когда вы начнёте, карты будут вытянуты и интерпретированы за один проход.",
     trueSpread: "Истинный расклад",
     reflectiveOnly: "Только для размышления",
     trueSpreadText: (period: PeriodValue) =>
@@ -189,11 +221,27 @@ export const COPY: Record<SupportedLocale, UiCopy> = {
     drawn: "Вытянуто",
     interpretationInProgress: "Идёт интерпретация",
     interpretationLoading:
-      "Gemini интерпретирует ваш расклад. Это может занять несколько секунд.",
-    interpretationGenerating: "Генерируется ваша интерпретация...",
+      "Мадам Веспера изучает ваш расклад. Это может занять несколько секунд.",
+    interpretationGenerating: "Подготавливается ваш ответ...",
     stayOnInterpretation: "Остаться на интерпретации",
     adviceLabel: "Совет",
     cautionLabel: "Предостережение",
+    readerName: "Мадам Веспера",
+    readerTitle: "Хранительница Завесы",
+    statusShufflingTitle: "Колода тасуется",
+    statusShufflingMessage: "Карты вытягиваются прямо сейчас.",
+    statusUsingSavedTitle: "Истинный расклад найден",
+    statusUsingSavedMessage:
+      "Для этого временного окна уже существует истинный расклад. Он будет прочитан применительно к вашему вопросу.",
+    statusCardsDrawnTitle: "Карты на столе",
+    statusCardsDrawnMessage:
+      "Расклад уже вытянут. Символы занимают свои места.",
+    statusStudyingTitle: "Мадам Веспера читает расклад",
+    statusStudyingMessage:
+      "Мадам Веспера, Хранительница Завесы, изучает карты и готовит ваш ответ.",
+    statusRetryingTitle: "Завеса дрогнула",
+    statusRetryingMessage: (attempt: number, max: number) =>
+      `Связь подвела. Мадам Веспера пытается снова (${attempt}/${max}).`,
     positionLabels: {
       Situation: "Ситуация",
       Challenge: "Препятствие",
@@ -209,6 +257,8 @@ export const COPY: Record<SupportedLocale, UiCopy> = {
     untilTomorrow: "до завтра",
     untilNextWeek: "до следующей недели",
     untilNextMonth: "до следующего месяца",
+    untilNextYear: "до следующего года",
+    untilNextDecade: "до следующего десятилетия",
     periods: {
       hour: {
         label: "1 час",
@@ -225,6 +275,14 @@ export const COPY: Record<SupportedLocale, UiCopy> = {
       month: {
         label: "1 месяц",
         helper: "Только первый расклад за этот месяц считается истинным.",
+      },
+      year: {
+        label: "1 год",
+        helper: "Только первый расклад за этот год считается истинным.",
+      },
+      decade: {
+        label: "10 лет",
+        helper: "Только первый расклад за это десятилетие считается истинным.",
       },
     },
   },

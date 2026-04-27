@@ -1,5 +1,5 @@
 export type SupportedLocale = "en" | "ru";
-export type PeriodValue = "hour" | "day" | "week" | "month";
+export type PeriodValue = "hour" | "day" | "week" | "month" | "year" | "decade";
 export type ReadingOrientation = "Upright" | "Reversed";
 export type ArcanaType = "Major Arcana" | "Minor Arcana";
 export type SpreadPosition = "Situation" | "Challenge" | "Advice";
@@ -158,6 +158,8 @@ export function getPeriodBucket(period: PeriodValue, now = new Date()) {
   if (period === "hour") return `${year}-${month}-${day}-${hour}`;
   if (period === "day") return `${year}-${month}-${day}`;
   if (period === "month") return `${year}-${month}`;
+  if (period === "year") return `${year}`;
+  if (period === "decade") return `${Math.floor(year / 10) * 10}s`;
 
   const { year: isoYear, week } = getISOWeek(now);
   return `${isoYear}-W${pad(week)}`;

@@ -22,12 +22,8 @@ import {
   getOrientationLabel,
   getStorageKey,
   type PeriodValue,
-  type ReadingOrientation,
   type SpreadCard as SpreadCardType,
-  type SpreadPosition,
-  type SpreadReading,
   type SupportedLocale,
-  type TarotCard,
 } from "@/lib/tarot";
 
 type AiReading = {
@@ -37,6 +33,15 @@ type AiReading = {
   caution: string;
   truthNote: string;
 };
+
+type RitualStatus = {
+  title: string;
+  message: string;
+};
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export default function Page() {
   const locale = useLocale();
@@ -49,14 +54,15 @@ export default function Page() {
   );
 
   const [period, setPeriod] = useState<PeriodValue>("day");
-  const [truthReading, setTruthReading] = useState<SpreadReading | null>(null);
-  const [latestReading, setLatestReading] = useState<SpreadReading | null>(null);
+  const [truthReading, setTruthReading] = useState<any | null>(null);
+  const [latestReading, setLatestReading] = useState<any | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
 
   const [question, setQuestion] = useState("");
   const [aiReading, setAiReading] = useState<AiReading | null>(null);
   const [isLoadingAi, setIsLoadingAi] = useState(false);
   const [aiError, setAiError] = useState("");
+  const [ritualStatus, setRitualStatus] = useState<RitualStatus | null>(null);
 
   const interpretationRef = useRef<HTMLDivElement | null>(null);
 
@@ -68,6 +74,7 @@ export default function Page() {
       setLatestReading(null);
       setAiReading(null);
       setAiError("");
+      setRitualStatus(null);
       setIsHydrated(true);
       return;
     }
@@ -90,6 +97,7 @@ export default function Page() {
 
     setAiReading(null);
     setAiError("");
+    setRitualStatus(null);
     setIsHydrated(true);
   }, [period, deck]);
 
@@ -106,9 +114,18 @@ export default function Page() {
     }
   }, [isLoadingAi, aiReading, aiError]);
 
-  function clearAiState() {
+  function clearResultState() {
     setAiReading(null);
     setAiError("");
+    setRitualStatus(null);
+  }
+
+  function resetCurrentWindow() {
+    const key = getStorageKey(period);
+    window.localStorage.removeItem(key);
+    setTruthReading(null);
+    setLatestReading(null);
+    clearResultState();
   }
 
   function scrollToInterpretation() {
@@ -118,93 +135,132 @@ export default function Page() {
     });
   }
 
-  function drawTrueOrPersistedReading() {
-    const key = getStorageKey(period);
-    const saved = window.localStorage.getItem(key);
+  async function requestInterpretationWithRetry(reading: any) {
+    const maxAttempts = 3;
 
-    clearAiState();
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      if (attempt > 1) {
+        setRitualStatus({
+          title: ui.statusRetryingTitle,
+          message: ui.statusRetryingMessage(attempt, maxAttempts),
+        });
+        await sleep(900);
+      }
 
-    if (saved) {
       try {
-        const parsed = JSON.parse(saved) as unknown;
-        if (isStoredSpreadReading(parsed)) {
-          const hydrated = hydrateReading(parsed, deck);
-          setTruthReading(hydrated);
-          setLatestReading(hydrated);
-          return;
+        const response = await fetch("/api/tarot", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            question,
+            cards: reading.cards.map((card: SpreadCardType) => ({
+              name: card.name,
+              type:
+                currentLocale === "ru"
+                  ? card.type === "Major Arcana"
+                    ? "Старший аркан"
+                    : "Младший аркан"
+                  : card.type,
+              suit: card.suit,
+              orientation: getOrientationLabel(card.orientation, currentLocale),
+              interpretation: card.interpretation,
+              position: ui.positionLabels[card.position],
+            })),
+            isTrueReading: reading.isTrueReading,
+            period,
+            locale: currentLocale,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to interpret reading.");
         }
-      } catch {
-        // ignore broken saved data and redraw
+
+        return data as AiReading;
+      } catch (error) {
+        if (attempt === maxAttempts) {
+          throw error;
+        }
       }
     }
 
-    const firstReading = createSpreadReading(deck, true);
-    window.localStorage.setItem(
-      key,
-      JSON.stringify(serializeReading(firstReading))
-    );
-    setTruthReading(firstReading);
-    setLatestReading(firstReading);
+    throw new Error("Failed to interpret reading.");
   }
 
-  function drawReflectiveReading() {
-    clearAiState();
-    const reflective = createSpreadReading(deck, false);
-    setLatestReading(reflective);
-  }
+  async function handleDrawAndInterpret() {
+    if (!question.trim()) return;
 
-  function resetCurrentWindow() {
-    window.localStorage.removeItem(getStorageKey(period));
-    setTruthReading(null);
-    setLatestReading(null);
-    clearAiState();
-  }
-
-  async function generateAiInterpretation() {
-    if (!latestReading || !question.trim()) return;
-
+    clearResultState();
     setIsLoadingAi(true);
-    setAiError("");
-    setAiReading(null);
 
     try {
-      const response = await fetch("/api/tarot", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          question,
-          cards: latestReading.cards.map((card) => ({
-            name: card.name,
-            type:
-              currentLocale === "ru"
-                ? card.type === "Major Arcana"
-                  ? "Старший аркан"
-                  : "Младший аркан"
-                : card.type,
-            suit: card.suit,
-            orientation: getOrientationLabel(card.orientation, currentLocale),
-            interpretation: card.interpretation,
-            position: ui.positionLabels[card.position],
-          })),
-          isTrueReading: latestReading.isTrueReading,
-          period,
-          locale: currentLocale,
-        }),
+      setRitualStatus({
+        title: ui.statusShufflingTitle,
+        message: ui.statusShufflingMessage,
       });
 
-      const data = await response.json();
+      await sleep(450);
 
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to interpret reading.");
+      const key = getStorageKey(period);
+      const saved = window.localStorage.getItem(key);
+
+      let activeReading = null;
+
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved) as unknown;
+          if (isStoredSpreadReading(parsed)) {
+            activeReading = hydrateReading(parsed, deck);
+          }
+        } catch {
+          activeReading = null;
+        }
       }
 
-      setAiReading(data as AiReading);
+      if (activeReading) {
+        setTruthReading(activeReading);
+        setLatestReading(activeReading);
+
+        setRitualStatus({
+          title: ui.statusUsingSavedTitle,
+          message: ui.statusUsingSavedMessage,
+        });
+
+        await sleep(500);
+      } else {
+        activeReading = createSpreadReading(deck, true);
+        window.localStorage.setItem(
+          key,
+          JSON.stringify(serializeReading(activeReading))
+        );
+        setTruthReading(activeReading);
+        setLatestReading(activeReading);
+
+        setRitualStatus({
+          title: ui.statusCardsDrawnTitle,
+          message: ui.statusCardsDrawnMessage,
+        });
+
+        await sleep(650);
+      }
+
+      setRitualStatus({
+        title: ui.statusStudyingTitle,
+        message: ui.statusStudyingMessage,
+      });
+
+      const data = await requestInterpretationWithRetry(activeReading);
+      setAiReading(data);
+      setRitualStatus(null);
     } catch (error) {
       setAiError(
         error instanceof Error ? error.message : "Something went wrong."
       );
+      setRitualStatus(null);
     } finally {
       setIsLoadingAi(false);
     }
@@ -251,78 +307,48 @@ export default function Page() {
           </div>
         </section>
 
+        <section className="mb-6">
+          <QuestionPanel
+            title={ui.askQuestion}
+            question={question}
+            placeholder={ui.questionPlaceholder}
+            helpText={!latestReading ? ui.flowNoSpread : ui.flowHasSpread}
+            onQuestionChange={(value) => {
+              setQuestion(value);
+              clearResultState();
+            }}
+            periodTitle={ui.truthWindow}
+            periodDescription={ui.truthWindowText}
+            periodLockedHint={ui.truthWindowLockedHint}
+            periods={ui.periods}
+            selectedPeriod={period}
+            onSelectPeriod={(nextPeriod) => {
+              setPeriod(nextPeriod);
+              clearResultState();
+            }}
+            periodEnabled={!!question.trim()}
+            primaryButtonText={
+              isLoadingAi ? ui.generating : ui.drawAndInterpret
+            }
+            onPrimaryAction={handleDrawAndInterpret}
+            canPrimaryAction={!!question.trim() && !isLoadingAi}
+            showJumpButton={shouldShowJumpButton}
+            jumpButtonText={ui.jumpToInterpretation}
+            onJump={scrollToInterpretation}
+            status={ritualStatus}
+          />
+        </section>
+
         <section className="grid gap-6 lg:grid-cols-[380px_minmax(0,1fr)]">
           <aside className="rounded-[28px] border border-white/10 bg-white/5 p-5 shadow-2xl backdrop-blur-xl">
-            <div className="mb-5">
-              <p className="text-sm font-medium text-white/85">
-                {ui.truthWindow}
-              </p>
-              <p className="mt-1 text-sm leading-6 text-white/55">
-                {ui.truthWindowText}
-              </p>
-            </div>
-
-            <div className="grid gap-3">
-              {(Object.keys(ui.periods) as PeriodValue[]).map((item) => {
-                const active = period === item;
-                const meta = ui.periods[item];
-
-                return (
-                  <button
-                    key={item}
-                    type="button"
-                    onClick={() => setPeriod(item)}
-                    className={`rounded-2xl border px-4 py-4 text-left transition ${
-                      active
-                        ? "border-fuchsia-400/30 bg-fuchsia-500/15 shadow-lg shadow-fuchsia-950/40"
-                        : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
-                    }`}
-                  >
-                    <div className="text-sm font-semibold text-white">
-                      {meta.label}
-                    </div>
-                    <div className="mt-1 text-xs leading-5 text-white/55">
-                      {meta.helper}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="mt-6 grid gap-3">
-              <button
-                type="button"
-                onClick={drawTrueOrPersistedReading}
-                className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 transition hover:scale-[0.99]"
-              >
-                {truthReading ? ui.showTrueSpread : ui.drawSpread}
-              </button>
-
-              <button
-                type="button"
-                onClick={drawReflectiveReading}
-                className="rounded-2xl border border-white/12 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
-              >
-                {ui.drawAnother}
-              </button>
-
-              <button
-                type="button"
-                onClick={resetCurrentWindow}
-                className="rounded-2xl border border-white/10 bg-transparent px-4 py-3 text-sm font-semibold text-white/70 transition hover:bg-white/5"
-              >
-                {ui.resetWindow}
-              </button>
-            </div>
-
-            <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
               <div className="text-xs uppercase tracking-[0.2em] text-white/45">
                 {ui.storedTrueSpread}
               </div>
               {truthReading ? (
                 <>
                   <div className="mt-3 space-y-2">
-                    {truthReading.cards.map((card) => (
+                    {truthReading.cards.map((card: SpreadCardType) => (
                       <div
                         key={`${card.position}-${card.id}`}
                         className="text-sm text-white/80"
@@ -337,6 +363,14 @@ export default function Page() {
                   <div className="mt-3 text-sm leading-6 text-white/65">
                     {ui.drawn} {formatDateTime(truthReading.drawnAt, currentLocale)}
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={resetCurrentWindow}
+                    className="mt-4 rounded-2xl border border-white/10 bg-transparent px-4 py-3 text-sm font-semibold text-white/70 transition hover:bg-white/5"
+                  >
+                    {ui.resetWindow}
+                  </button>
                 </>
               ) : (
                 <p className="mt-3 text-sm leading-6 text-white/55">
@@ -347,36 +381,13 @@ export default function Page() {
           </aside>
 
           <section className="rounded-[28px] border border-white/10 bg-white/5 p-5 shadow-2xl backdrop-blur-xl lg:p-6">
-            <QuestionPanel
-              title={ui.askQuestion}
-              question={question}
-              placeholder={ui.questionPlaceholder}
-              helpText={!latestReading ? ui.flowNoSpread : ui.flowHasSpread}
-              buttonText={
-                isLoadingAi
-                  ? ui.generating
-                  : !latestReading
-                  ? ui.drawFirst
-                  : ui.interpretSpread
-              }
-              jumpButtonText={ui.jumpToInterpretation}
-              onQuestionChange={(value) => {
-                setQuestion(value);
-                clearAiState();
-              }}
-              onInterpret={generateAiInterpretation}
-              onJump={scrollToInterpretation}
-              canInterpret={!!latestReading && !!question.trim() && !isLoadingAi}
-              showJumpButton={shouldShowJumpButton}
-            />
-
             <InterpretationPanel
               ref={interpretationRef}
               isLoading={isLoadingAi}
               error={aiError}
               reading={aiReading}
-              loadingTitle={ui.interpretationInProgress}
-              loadingText={ui.interpretationLoading}
+              loadingTitle={ritualStatus?.title ?? ui.interpretationInProgress}
+              loadingText={ritualStatus?.message ?? ui.interpretationLoading}
               loadingSpinnerText={ui.interpretationGenerating}
               stayButtonText={ui.stayOnInterpretation}
               adviceLabel={ui.adviceLabel}
@@ -391,7 +402,7 @@ export default function Page() {
             ) : !latestReading ? (
               <div className="flex min-h-[420px] flex-col items-center justify-center rounded-[28px] border border-dashed border-white/10 bg-black/20 px-8 text-center">
                 <div className="mb-4 flex gap-3">
-                  {(["Situation", "Challenge", "Advice"] as SpreadPosition[]).map(
+                  {(["Situation", "Challenge", "Advice"] as const).map(
                     (position) => (
                       <div
                         key={position}
@@ -440,7 +451,7 @@ export default function Page() {
                 )}
 
                 <div className="grid gap-5 lg:grid-cols-3">
-                  {latestReading.cards.map((card) => (
+                  {latestReading.cards.map((card: SpreadCardType) => (
                     <SpreadCard
                       key={`${card.position}-${card.id}-${card.orientation}`}
                       card={card}

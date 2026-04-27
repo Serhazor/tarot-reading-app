@@ -84,7 +84,9 @@ export function getExpiryText(period: PeriodValue, ui: UiCopy) {
   if (period === "hour") return ui.untilHour;
   if (period === "day") return ui.untilTomorrow;
   if (period === "week") return ui.untilNextWeek;
-  return ui.untilNextMonth;
+  if (period === "month") return ui.untilNextMonth;
+  if (period === "year") return ui.untilNextYear;
+  return ui.untilNextDecade;
 }
 
 export function buildSpreadReadingText(
